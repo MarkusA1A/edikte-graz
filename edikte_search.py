@@ -27,6 +27,11 @@ import argparse
 import html as html_lib
 import webbrowser
 from datetime import datetime, timezone, timedelta
+try:
+    from zoneinfo import ZoneInfo
+    _TZ = ZoneInfo("Europe/Vienna")
+except Exception:  # pragma: no cover - Fallback ohne tzdata
+    _TZ = timezone(timedelta(hours=1))
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
@@ -240,13 +245,13 @@ def _row_html(r, esc):
     rel = "1" if r.get("relevant") else "0"
     return f"""
     <tr data-relevant="{rel}" data-search="{search_blob}">
-      <td class="plz">{esc(plz) or "&ndash;"}</td>
-      <td class="ort">
+      <td class="plz" data-label="PLZ">{esc(plz) or "&ndash;"}</td>
+      <td class="ort" data-label="Ort &amp; Adresse">
         <div class="ort-name">{esc(ort_strasse) or esc(r["adresse"])}</div>
         {kat_badge}
       </td>
-      <td class="objekt">{esc(r["objekt"]) or "&ndash;"}</td>
-      <td class="termin">
+      <td class="objekt" data-label="Objekt">{esc(r["objekt"]) or "&ndash;"}</td>
+      <td class="termin" data-label="Termin">
         <span class="typ">{esc(typ)}</span>
         <span class="datum">{esc(datum)}</span>
       </td>
@@ -259,8 +264,8 @@ def _row_html(r, esc):
 def write_html_report(results, out_file, bundesland="Steiermark"):
     """Erzeugt eine in sich geschlossene HTML-Seite mit Live-Filter."""
     esc = html_lib.escape
-    # Zeitstempel in mitteleuropäischer Zeit (grobe Näherung: UTC+2 im Sommer).
-    stand = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=2)))
+    # Zeitstempel in österreichischer Zeit (MEZ/MESZ automatisch).
+    stand = datetime.now(timezone.utc).astimezone(_TZ)
     stand_str = stand.strftime("%d.%m.%Y, %H:%M Uhr")
 
     relevant = [r for r in results if r.get("relevant")]
@@ -323,7 +328,27 @@ def write_html_report(results, out_file, bundesland="Steiermark"):
   .empty{{padding:28px;text-align:center;color:var(--muted)}}
   footer{{color:var(--muted);font-size:.82rem;margin:22px 4px 0;text-align:center}}
   footer a{{color:var(--accent)}}
-  @media (max-width:560px){{header.top{{padding:22px 18px}}thead{{display:none}}}}
+  @media (max-width:600px){{
+    body{{padding:20px 12px}}
+    header.top{{padding:22px 18px}}
+    header.top h1{{font-size:1.3rem}}
+    .controls{{gap:10px}}
+    .toggle{{width:100%}}
+    .toggle button{{flex:1}}
+    /* Kopfzeile für Screenreader verfügbar lassen, aber visuell ausblenden */
+    thead{{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}
+    .table-scroll{{overflow:visible}}
+    table,tbody,tr,td{{display:block;width:100%}}
+    tbody tr{{border:1px solid var(--line);border-radius:14px;margin:14px 10px;background:#fff}}
+    tbody tr:hover{{background:#fff}}
+    tbody td{{border:none;border-bottom:1px solid var(--line);padding:10px 16px}}
+    tbody td:last-child{{border-bottom:none}}
+    tbody td::before{{content:attr(data-label);display:block;font-weight:700;color:var(--muted);
+      font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}}
+    tbody td.aktion::before{{display:none}}
+    tbody td.aktion{{padding-top:12px}}
+    tbody td.plz{{font-size:1.05rem}}
+  }}
 </style>
 </head>
 <body>
