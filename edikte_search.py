@@ -395,6 +395,7 @@ def write_html_report(results, out_file, bundesland="Steiermark"):
     <footer>
       <p>Erstellt am {esc(stand_str)} &middot;
       Quelle: <a href="{esc(SEARCH_URL)}" target="_blank" rel="noopener">edikte.justiz.gv.at</a></p>
+      <p>Automatische Aktualisierung täglich gegen 06:00 Uhr</p>
       <p class="disclaimer">Rechtlicher Hinweis: Diese Seite gibt öffentlich zugängliche
       Einträge der Ediktsdatei des österreichischen Bundesministeriums für Justiz
       automatisiert und unverbindlich wieder. Alle Angaben ohne Gewähr auf Richtigkeit,

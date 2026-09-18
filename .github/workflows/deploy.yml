@@ -2,7 +2,7 @@ name: Ediktsdatei-Report bauen & veröffentlichen
 
 on:
   schedule:
-    - cron: "17 4 * * *"      # täglich 04:17 UTC (~06:17 Uhr MESZ)
+    - cron: "0 4 * * *"       # täglich 04:00 UTC = 06:00 Uhr MESZ (Sommer) / 05:00 MEZ (Winter)
   workflow_dispatch:            # manuell auslösbar
   push:
     branches: [ main ]         # bei jedem Push auf main neu bauen
