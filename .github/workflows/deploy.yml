@@ -1,0 +1,50 @@
+name: Ediktsdatei-Report bauen & veröffentlichen
+
+on:
+  schedule:
+    - cron: "17 4 * * *"      # täglich 04:17 UTC (~06:17 Uhr MESZ)
+  workflow_dispatch:            # manuell auslösbar
+  push:
+    branches: [ main ]         # bei jedem Push auf main neu bauen
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: pip install -r requirements.txt
+
+      - name: Report erzeugen
+        run: python edikte_search.py --out public/index.html --no-open
+
+      - name: Pages konfigurieren (aktiviert Pages automatisch)
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Artefakt hochladen
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Auf GitHub Pages veröffentlichen
+        id: deployment
+        uses: actions/deploy-pages@v4

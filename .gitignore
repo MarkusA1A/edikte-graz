@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+public/
+edikte_response.html
+versteigerungen_relevant.html
