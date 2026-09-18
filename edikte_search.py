@@ -327,23 +327,64 @@ def _row_html(r, esc):
     </tr>"""
 
 
-def write_html_report(results, out_file, bundesland="Steiermark"):
-    """Erzeugt eine in sich geschlossene HTML-Seite mit Live-Filter."""
+_THEAD = ("<tr><th>PLZ</th><th>Ort &amp; Adresse</th><th>Objekt</th>"
+          "<th>Termin</th><th>Schätzwert / Ausrufpreis</th><th></th></tr>")
+
+
+def _render_section(sec, esc):
+    """Rendert eine Sektion (Bundesland) mit optionalem Relevanz-Umschalter."""
+    results = sec["results"]
+    relevant = [r for r in results if r.get("relevant")]
+    rows = "".join(_row_html(r, esc)
+                   for r in sorted(results, key=lambda x: x["adresse"]))
+    toggle = sec.get("toggle")
+    onlyrel = "1" if (toggle and sec.get("default_relevant", True)) else "0"
+    shown0 = len(relevant) if onlyrel == "1" else len(results)
+    toggle_html = ""
+    if toggle:
+        toggle_html = f"""
+      <div class="toggle">
+        <button class="active" type="button" data-mode="rel">{esc(sec["relevant_label"])}</button>
+        <button type="button" data-mode="all">{esc(sec["all_label"])}</button>
+      </div>"""
+    subtitle = f'<p class="sec-sub">{esc(sec["subtitle"])}</p>' if sec.get("subtitle") else ""
+    empty_txt = esc(sec.get("empty", "Aktuell keine Einträge."))
+    return f"""
+    <section class="section" data-onlyrel="{onlyrel}">
+      <div class="sec-head">
+        <div><h2>{esc(sec["title"])}</h2>{subtitle}</div>
+        <div class="sec-stats">
+          <span class="chip"><b class="shown-count">{shown0}</b>&nbsp;angezeigt</span>
+          <span class="chip">{len(results)}&nbsp;gesamt</span>
+        </div>
+      </div>{toggle_html}
+      <div class="card">
+        <div class="table-scroll"><table>
+          <thead>{_THEAD}</thead>
+          <tbody>{rows}
+          </tbody>
+        </table></div>
+        <p class="empty section-empty" style="display:none">{empty_txt}</p>
+      </div>
+    </section>"""
+
+
+def write_html_report(sections, out_file):
+    """Erzeugt eine in sich geschlossene HTML-Seite mit einer oder mehreren
+    Sektionen (Bundesländern) und globaler Live-Suche."""
     esc = html_lib.escape
     # Zeitstempel in österreichischer Zeit (MEZ/MESZ automatisch).
     stand = datetime.now(timezone.utc).astimezone(_TZ)
     stand_str = stand.strftime("%d.%m.%Y, %H:%M Uhr")
 
-    relevant = [r for r in results if r.get("relevant")]
-    rows = "".join(_row_html(r, esc)
-                   for r in sorted(results, key=lambda x: x["adresse"]))
+    sections_html = "".join(_render_section(s, esc) for s in sections)
 
     doc = f"""<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Versteigerungen {esc(bundesland)} &ndash; Raum Graz/Weiz/Kumberg</title>
+<title>Gerichtliche Versteigerungen &ndash; Steiermark &amp; Wien</title>
 <style>
   :root {{
     --bg:#f4f6f8; --card:#fff; --ink:#1c2733; --muted:#64748b; --line:#e2e8f0;
@@ -363,11 +404,21 @@ def write_html_report(results, out_file, bundesland="Steiermark"):
     border-radius:12px;padding:10px 16px}}
   .stat .num{{font-size:1.5rem;font-weight:700;display:block}}
   .stat .lbl{{font-size:.78rem;opacity:.9;text-transform:uppercase;letter-spacing:.04em}}
-  .controls{{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:22px 2px 0}}
-  .controls input[type=search]{{flex:1;min-width:220px;padding:11px 14px;border:1px solid var(--line);
+  .controls{{position:sticky;top:0;z-index:5;display:flex;gap:12px;align-items:center;
+    margin:22px 0 0;padding:10px 0;background:var(--bg)}}
+  .controls input[type=search]{{flex:1;min-width:0;padding:12px 16px;border:1px solid var(--line);
     border-radius:12px;font-size:.95rem;background:#fff;color:var(--ink)}}
+  .section{{margin-top:30px}}
+  .sec-head{{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;
+    flex-wrap:wrap;margin:0 2px 10px}}
+  .sec-head h2{{margin:0;font-size:1.25rem;letter-spacing:-.01em}}
+  .sec-sub{{margin:2px 0 0;color:var(--muted);font-size:.9rem}}
+  .sec-stats{{display:flex;gap:8px;flex-wrap:wrap}}
+  .chip{{background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 12px;
+    font-size:.8rem;color:var(--muted)}}
+  .chip b{{color:var(--accent)}}
   .toggle{{display:inline-flex;background:#fff;border:1px solid var(--line);border-radius:12px;
-    overflow:hidden}}
+    overflow:hidden;margin:0 2px}}
   .toggle button{{border:0;background:#fff;color:var(--muted);padding:10px 14px;font-size:.85rem;
     font-weight:600;cursor:pointer}}
   .toggle button.active{{background:var(--accent);color:#fff}}
@@ -433,40 +484,15 @@ def write_html_report(results, out_file, bundesland="Steiermark"):
 <body>
   <div class="wrap">
     <header class="top">
-      <h1>Gerichtliche Versteigerungen &ndash; {esc(bundesland)}</h1>
-      <p>Automatisch aktualisiert &middot; Fokus Raum Graz / Weiz / Kumberg</p>
-      <div class="stats">
-        <div class="stat"><span class="num" id="stat-shown">{len(relevant)}</span>
-          <span class="lbl">Angezeigt</span></div>
-        <div class="stat"><span class="num">{len(relevant)}</span>
-          <span class="lbl">Raum Graz/Weiz</span></div>
-        <div class="stat"><span class="num">{len(results)}</span>
-          <span class="lbl">Gesamt {esc(bundesland)}</span></div>
-        <div class="stat"><span class="num">{stand.strftime("%d.%m.")}</span>
-          <span class="lbl">Stand</span></div>
-      </div>
+      <h1>Gerichtliche Versteigerungen</h1>
+      <p>Steiermark (Raum Graz/Weiz/Kumberg) &amp; Wien &middot; automatisch aktualisiert</p>
     </header>
 
     <div class="controls">
-      <input type="search" id="q" placeholder="Suchen (Ort, Straße, Objekt) …" autocomplete="off">
-      <div class="toggle">
-        <button id="btn-rel" class="active" type="button">Raum Graz/Weiz/Kumberg</button>
-        <button id="btn-all" type="button">Alle Steiermark</button>
-      </div>
+      <input type="search" id="q" placeholder="Suchen (Ort, Straße, Objekt) … – filtert beide Sektionen" autocomplete="off">
     </div>
 
-    <div class="card">
-      <div class="table-scroll">
-      <table>
-        <thead>
-          <tr><th>PLZ</th><th>Ort &amp; Adresse</th><th>Objekt</th><th>Termin</th><th>Schätzwert / Ausrufpreis</th><th></th></tr>
-        </thead>
-        <tbody id="tbody">{rows}
-        </tbody>
-      </table>
-      </div>
-      <p class="empty" id="empty" style="display:none">Keine Treffer für die aktuelle Auswahl.</p>
-    </div>
+    {sections_html}
 
     <footer>
       <p>Erstellt am {esc(stand_str)} &middot;
@@ -487,36 +513,38 @@ def write_html_report(results, out_file, bundesland="Steiermark"):
   </div>
 
 <script>
-  var rows = Array.prototype.slice.call(document.querySelectorAll('#tbody tr'));
   var q = document.getElementById('q');
-  var btnRel = document.getElementById('btn-rel');
-  var btnAll = document.getElementById('btn-all');
-  var statShown = document.getElementById('stat-shown');
-  var emptyMsg = document.getElementById('empty');
-  var onlyRelevant = true;
 
-  function apply() {{
+  function applyAll() {{
     var term = q.value.trim().toLowerCase();
-    var shown = 0;
-    rows.forEach(function(tr) {{
-      var okRel = !onlyRelevant || tr.getAttribute('data-relevant') === '1';
-      var okTerm = !term || tr.getAttribute('data-search').indexOf(term) !== -1;
-      var vis = okRel && okTerm;
-      tr.style.display = vis ? '' : 'none';
-      if (vis) shown++;
+    document.querySelectorAll('.section').forEach(function(sec) {{
+      var onlyRel = sec.getAttribute('data-onlyrel') === '1';
+      var shown = 0;
+      sec.querySelectorAll('tbody tr').forEach(function(tr) {{
+        var okRel = !onlyRel || tr.getAttribute('data-relevant') === '1';
+        var okTerm = !term || tr.getAttribute('data-search').indexOf(term) !== -1;
+        var vis = okRel && okTerm;
+        tr.style.display = vis ? '' : 'none';
+        if (vis) shown++;
+      }});
+      var cnt = sec.querySelector('.shown-count');
+      if (cnt) cnt.textContent = shown;
+      var em = sec.querySelector('.section-empty');
+      if (em) em.style.display = shown ? 'none' : 'block';
     }});
-    statShown.textContent = shown;
-    emptyMsg.style.display = shown ? 'none' : 'block';
   }}
 
-  q.addEventListener('input', apply);
-  btnRel.addEventListener('click', function() {{
-    onlyRelevant = true; btnRel.classList.add('active'); btnAll.classList.remove('active'); apply();
+  q.addEventListener('input', applyAll);
+  document.querySelectorAll('.toggle button').forEach(function(btn) {{
+    btn.addEventListener('click', function() {{
+      var sec = btn.closest('.section');
+      sec.setAttribute('data-onlyrel', btn.getAttribute('data-mode') === 'rel' ? '1' : '0');
+      sec.querySelectorAll('.toggle button').forEach(function(b) {{ b.classList.remove('active'); }});
+      btn.classList.add('active');
+      applyAll();
+    }});
   }});
-  btnAll.addEventListener('click', function() {{
-    onlyRelevant = false; btnAll.classList.add('active'); btnRel.classList.remove('active'); apply();
-  }});
-  apply();
+  applyAll();
 </script>
 </body>
 </html>"""
@@ -548,27 +576,49 @@ def main():
         describe_form(form)
         return
 
+    # --- Sektion 1: Steiermark (Fokus Raum Graz/Weiz/Kumberg) ---
     print("Sende Suche (Bundesland = Steiermark) ...")
-    html, result_url = submit_search(form, bundesland="Steiermark")
-    results = parse_results(html, result_url)
-
-    if not results:
-        print("Keine Versteigerungen gefunden - erzeuge leeren Report.")
-
-    for r in results:
+    html_s, url_s = submit_search(form, bundesland="Steiermark")
+    res_stmk = parse_results(html_s, url_s)
+    for r in res_stmk:
         r["relevant"] = is_relevant(" ".join([r["adresse"], r["objekt"], r["edikt"]]))
-    relevant = [r for r in results if r["relevant"]]
-    print(f"{len(results)} Steiermark-Treffer, davon {len(relevant)} im Raum "
+    rel_stmk = [r for r in res_stmk if r["relevant"]]
+    print(f"Steiermark: {len(res_stmk)} Treffer, davon {len(rel_stmk)} im Raum "
           "Graz/Weiz/Kumberg.")
 
-    if results and not args.no_prices:
-        print("Hole Schätzwert/Ausrufpreis aus den Detailseiten ...")
-        enrich_with_prices(results)
+    # --- Sektion 2: Wien (alle Bezirke) ---
+    print("Sende Suche (Bundesland = Wien) ...")
+    html_w, url_w = submit_search(form, bundesland="Wien")
+    res_wien = parse_results(html_w, url_w)
+    for r in res_wien:
+        r["relevant"] = True  # in Wien werden alle Treffer angezeigt
+    print(f"Wien: {len(res_wien)} Treffer.")
 
-    write_html_report(results, args.out)
+    if not args.no_prices:
+        print("Hole Schätzwert/Ausrufpreis aus den Detailseiten (Steiermark) ...")
+        enrich_with_prices(res_stmk)
+        print("Hole Schätzwert/Ausrufpreis aus den Detailseiten (Wien) ...")
+        enrich_with_prices(res_wien)
+
+    sections = [
+        {
+            "id": "stmk", "title": "Steiermark",
+            "subtitle": "Raum Graz / Weiz / Kumberg",
+            "results": res_stmk, "toggle": True, "default_relevant": True,
+            "relevant_label": "Raum Graz/Weiz/Kumberg", "all_label": "Alle Steiermark",
+            "empty": "Aktuell keine Treffer im gewählten Gebiet.",
+        },
+        {
+            "id": "wien", "title": "Wien", "subtitle": "Alle Bezirke",
+            "results": res_wien, "toggle": False,
+            "empty": "Aktuell keine offenen Versteigerungen in Wien.",
+        },
+    ]
+
+    write_html_report(sections, args.out)
     print(f"HTML-Report gespeichert unter: {args.out}")
 
-    if relevant and not args.no_open:
+    if (rel_stmk or res_wien) and not args.no_open:
         try:
             webbrowser.open("file://" + os.path.abspath(args.out))
         except Exception:
