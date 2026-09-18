@@ -227,41 +227,68 @@ def format_euro(raw):
     return "€ " + s
 
 
+def _value_after(lines, label_re):
+    """Wert nach einem Label finden: entweder inline hinter dem Label oder
+    auf der nächsten Zeile (so ist die Ediktsdatei aufgebaut)."""
+    for i, ln in enumerate(lines):
+        m = re.match(label_re, ln, re.I)
+        if m:
+            after = ln[m.end():].strip(" :\t")
+            if after:
+                return after
+            if i + 1 < len(lines):
+                return lines[i + 1]
+    return ""
+
+
+def _extract_besichtigung(lines):
+    """Besichtigungstermin auslesen (nicht immer vorhanden).
+    1) strukturiertes Label 'Besichtigung(stermin):' -> Wert (inline/nächste Zeile)
+    2) Fallback: Satz mit 'Besichtigung' und einem Datum."""
+    for i, ln in enumerate(lines):
+        m = re.match(r"^besichtigung(?:stermin)?\s*:?\s*(.*)$", ln, re.I)
+        if m:
+            val = m.group(1).strip()
+            if not val and i + 1 < len(lines):
+                val = lines[i + 1].strip()
+            if val and not val.lower().startswith("besichtigung"):
+                return re.sub(r"\s+", " ", val)[:140]
+    for ln in lines:
+        if "besichtig" in ln.lower():
+            mm = re.search(r"(\d{2}\.\d{2}\.\d{4})(?:[^\d]{0,20}?(\d{1,2}[:.]\d{2}))?", ln)
+            if mm:
+                out = mm.group(1)
+                if mm.group(2):
+                    out += ", " + mm.group(2).replace(".", ":") + " Uhr"
+                return out
+    return ""
+
+
 def extract_detail_values(detail_html):
-    """Liest Schätzwert und geringstes Gebot aus einer Edikt-Detailseite.
-    Struktur: Label steht auf einer Zeile ('Schätzwert:'), der Betrag folgt
-    auf der nächsten Zeile ('21.000,00 EUR'). Rückgabe: (schätzwert, gebot)."""
+    """Liest Schätzwert, geringstes Gebot und (falls vorhanden) den
+    Besichtigungstermin aus einer Edikt-Detailseite.
+    Rückgabe: (schätzwert, gebot, besichtigung)."""
     soup = BeautifulSoup(detail_html, "lxml")
     lines = [ln.strip() for ln in soup.get_text("\n", strip=True).split("\n")
              if ln.strip()]
-
-    def value_after(label_re):
-        for i, ln in enumerate(lines):
-            m = re.match(label_re, ln, re.I)
-            if m:
-                after = ln[m.end():].strip(" :\t")
-                if re.search(r"\d", after):
-                    return after
-                if i + 1 < len(lines):
-                    return lines[i + 1]
-        return ""
-
-    schaetz = value_after(r"^schätzwert\s*:?")
-    gebot = value_after(r"^geringstes\s+gebot\s*:?")
-    return format_euro(schaetz), format_euro(gebot)
+    schaetz = format_euro(_value_after(lines, r"^schätzwert\s*:?"))
+    gebot = format_euro(_value_after(lines, r"^geringstes\s+gebot\s*:?"))
+    besichtigung = _extract_besichtigung(lines)
+    return schaetz, gebot, besichtigung
 
 
 def enrich_with_prices(results, delay=0.2):
-    """Holt für jeden Treffer die Detailseite und ergänzt Schätzwert/Gebot.
-    Fehler pro Treffer werden ignoriert (Feld bleibt leer)."""
+    """Holt für jeden Treffer die Detailseite und ergänzt Schätzwert, Gebot
+    und Besichtigungstermin. Fehler pro Treffer werden ignoriert."""
     total = len(results)
     for i, r in enumerate(results, 1):
         try:
             resp = session.get(r["url"], timeout=30)
             resp.raise_for_status()
-            r["schaetzwert"], r["gebot"] = extract_detail_values(resp.text)
+            r["schaetzwert"], r["gebot"], r["besichtigung"] = \
+                extract_detail_values(resp.text)
         except Exception as e:
-            r["schaetzwert"], r["gebot"] = "", ""
+            r["schaetzwert"], r["gebot"], r["besichtigung"] = "", "", ""
             print(f"  [{i}/{total}] Detail-Fehler: {e}")
         if delay:
             time.sleep(delay)
@@ -337,6 +364,7 @@ def _row_html(r, esc, block=None):
         <span class="typ">{esc(typ)}</span>
         <span class="datum">{esc(datum)}</span>
       </td>
+      <td class="besicht" data-label="Besichtigung">{esc(r.get("besichtigung") or "–")}</td>
       <td class="preise" data-label="Schätzwert / Ausrufpreis">
         <span class="preis-schaetz"><span class="pl">Schätzwert</span>{esc(r.get("schaetzwert") or "–")}</span>
         <span class="preis-gebot"><span class="pl">Ausrufpreis</span>{esc(r.get("gebot") or "–")}</span>
@@ -348,7 +376,8 @@ def _row_html(r, esc, block=None):
 
 
 _THEAD = ("<tr><th>PLZ</th><th>Ort &amp; Adresse</th><th>Objekt</th>"
-          "<th>Termin</th><th>Schätzwert / Ausrufpreis</th><th></th></tr>")
+          "<th>Termin</th><th>Besichtigung</th>"
+          "<th>Schätzwert / Ausrufpreis</th><th></th></tr>")
 
 
 def _wien_rows(results, esc):
@@ -375,7 +404,7 @@ def _wien_rows(results, esc):
             label = f"{num}. Bezirk – {name}" if num <= 23 else name
             parts.append(
                 f'<tr class="grouprow" data-block="{block}">'
-                f'<td colspan="6">{esc(label)}'
+                f'<td colspan="7">{esc(label)}'
                 f'<span class="gr-c">{counts[num]}</span></td></tr>'
             )
         parts.append(_row_html(r, esc, block=block))
@@ -500,6 +529,7 @@ def write_html_report(sections, out_file):
     font-weight:600;background:var(--accent-soft);color:var(--accent);border:1px solid #cfe6da}}
   .termin .typ{{display:block;font-weight:600}}
   .termin .datum{{color:var(--muted);font-variant-numeric:tabular-nums}}
+  .besicht{{color:var(--muted);font-size:.88rem;max-width:190px}}
   .preise{{white-space:nowrap;font-variant-numeric:tabular-nums}}
   .preise span{{display:block}}
   .preise .preis-schaetz{{font-weight:700}}
