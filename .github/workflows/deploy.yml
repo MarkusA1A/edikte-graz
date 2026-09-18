@@ -35,10 +35,8 @@ jobs:
       - name: Report erzeugen
         run: python edikte_search.py --out public/index.html --no-open
 
-      - name: Pages konfigurieren (aktiviert Pages automatisch)
+      - name: Pages konfigurieren
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Artefakt hochladen
         uses: actions/upload-pages-artifact@v3
