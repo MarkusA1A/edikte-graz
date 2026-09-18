@@ -52,6 +52,17 @@ RELEVANT_KEYWORDS = [
 RELEVANT_PLZ_PREFIXES = ["800", "801", "802", "803", "804", "805", "806", "807"]
 RELEVANT_PLZ_EXACT = ["8160", "8062", "8063"]  # Weiz, Kumberg-Umgebung
 
+# Edikt-Typen, die NICHT angezeigt werden sollen (z.B. Meistbotsverteilung und
+# 'Zuschlag ohne Überbot'). 'Zuschlag mit Überbot' bleibt sichtbar.
+EXCLUDE_EDIKT_RE = re.compile(
+    r"(meistbot\w*verteilung|zuschlag\s+ohne\s+überbot)", re.I
+)
+
+
+def is_excluded_edikt(r):
+    return bool(EXCLUDE_EDIKT_RE.search(r.get("edikt", "")))
+
+
 session = requests.Session()
 session.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -689,7 +700,7 @@ def main():
     # --- Sektion 1: Steiermark (Fokus Raum Graz/Weiz/Kumberg) ---
     print("Sende Suche (Bundesland = Steiermark) ...")
     html_s, url_s = submit_search(form, bundesland="Steiermark")
-    res_stmk = parse_results(html_s, url_s)
+    res_stmk = [r for r in parse_results(html_s, url_s) if not is_excluded_edikt(r)]
     for r in res_stmk:
         r["relevant"] = is_relevant(" ".join([r["adresse"], r["objekt"], r["edikt"]]))
     rel_stmk = [r for r in res_stmk if r["relevant"]]
@@ -699,7 +710,7 @@ def main():
     # --- Sektion 2: Wien (alle Bezirke) ---
     print("Sende Suche (Bundesland = Wien) ...")
     html_w, url_w = submit_search(form, bundesland="Wien")
-    res_wien = parse_results(html_w, url_w)
+    res_wien = [r for r in parse_results(html_w, url_w) if not is_excluded_edikt(r)]
     for r in res_wien:
         r["relevant"] = True  # in Wien werden alle Treffer angezeigt
     print(f"Wien: {len(res_wien)} Treffer.")
