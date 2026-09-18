@@ -297,7 +297,26 @@ def split_adresse(adresse):
     return plz, rest, kategorie
 
 
-def _row_html(r, esc):
+WIEN_BEZIRKE = {
+    1: "Innere Stadt", 2: "Leopoldstadt", 3: "Landstraße", 4: "Wieden",
+    5: "Margareten", 6: "Mariahilf", 7: "Neubau", 8: "Josefstadt",
+    9: "Alsergrund", 10: "Favoriten", 11: "Simmering", 12: "Meidling",
+    13: "Hietzing", 14: "Penzing", 15: "Rudolfsheim-Fünfhaus", 16: "Ottakring",
+    17: "Hernals", 18: "Währing", 19: "Döbling", 20: "Brigittenau",
+    21: "Floridsdorf", 22: "Donaustadt", 23: "Liesing",
+}
+
+
+def wien_bezirk(plz):
+    """Wiener PLZ '1BBX' -> (Bezirksnummer, Bezirksname). Sonst (99, ...)."""
+    if plz and re.fullmatch(r"1\d{3}", plz):
+        n = int(plz[1:3])
+        if 1 <= n <= 23:
+            return n, WIEN_BEZIRKE.get(n, "")
+    return 99, "Sonstige / ohne Bezirk"
+
+
+def _row_html(r, esc, block=None):
     plz, ort_strasse, kategorie = split_adresse(r["adresse"])
     dates = re.findall(r"\d{2}\.\d{2}\.\d{4}", r["edikt"])
     datum = dates[-1] if dates else ""
@@ -305,8 +324,9 @@ def _row_html(r, esc):
     kat_badge = f'<span class="badge kat">{esc(kategorie)}</span>' if kategorie else ""
     search_blob = esc(" ".join([r["adresse"], r["objekt"], r["edikt"]]).lower())
     rel = "1" if r.get("relevant") else "0"
+    block_attr = f' data-block="{block}"' if block is not None else ""
     return f"""
-    <tr data-relevant="{rel}" data-search="{search_blob}">
+    <tr data-relevant="{rel}" data-search="{search_blob}"{block_attr}>
       <td class="plz" data-label="PLZ">{esc(plz) or "&ndash;"}</td>
       <td class="ort" data-label="Ort &amp; Adresse">
         <div class="ort-name">{esc(ort_strasse) or esc(r["adresse"])}</div>
@@ -331,12 +351,46 @@ _THEAD = ("<tr><th>PLZ</th><th>Ort &amp; Adresse</th><th>Objekt</th>"
           "<th>Termin</th><th>Schätzwert / Ausrufpreis</th><th></th></tr>")
 
 
+def _wien_rows(results, esc):
+    """Rendert Wien-Zeilen nach Bezirk gruppiert (mit Zwischenüberschriften
+    und abwechselndem Blockhintergrund)."""
+    from collections import Counter
+
+    def gk(r):
+        plz, _, _ = split_adresse(r["adresse"])
+        return wien_bezirk(plz)
+
+    counts = Counter(gk(r)[0] for r in results)
+    ordered = sorted(
+        results,
+        key=lambda r: (gk(r)[0], split_adresse(r["adresse"])[0], r["adresse"]),
+    )
+    parts, current, block = [], None, 0
+    for r in ordered:
+        g = gk(r)
+        if g != current:
+            current = g
+            block ^= 1
+            num, name = g
+            label = f"{num}. Bezirk – {name}" if num <= 23 else name
+            parts.append(
+                f'<tr class="grouprow" data-block="{block}">'
+                f'<td colspan="6">{esc(label)}'
+                f'<span class="gr-c">{counts[num]}</span></td></tr>'
+            )
+        parts.append(_row_html(r, esc, block=block))
+    return "".join(parts)
+
+
 def _render_section(sec, esc):
     """Rendert eine Sektion (Bundesland) mit optionalem Relevanz-Umschalter."""
     results = sec["results"]
     relevant = [r for r in results if r.get("relevant")]
-    rows = "".join(_row_html(r, esc)
-                   for r in sorted(results, key=lambda x: x["adresse"]))
+    if sec.get("group") == "wien":
+        rows = _wien_rows(results, esc)
+    else:
+        rows = "".join(_row_html(r, esc)
+                       for r in sorted(results, key=lambda x: x["adresse"]))
     toggle = sec.get("toggle")
     onlyrel = "1" if (toggle and sec.get("default_relevant", True)) else "0"
     shown0 = len(relevant) if onlyrel == "1" else len(results)
@@ -432,6 +486,13 @@ def write_html_report(sections, out_file):
   tbody td{{padding:14px 16px;border-bottom:1px solid var(--line);vertical-align:top}}
   tbody tr:last-child td{{border-bottom:none}}
   tbody tr:hover{{background:#f8fafb}}
+  /* Bezirks-Gruppierung (Wien) */
+  tbody tr[data-block="1"] td{{background:#f6faf8}}
+  tbody tr.grouprow td{{background:var(--accent);color:#fff;font-weight:700;
+    font-size:.82rem;letter-spacing:.02em;padding:9px 16px;position:sticky;left:0}}
+  tbody tr.grouprow:hover td{{background:var(--accent)}}
+  tbody tr.grouprow .gr-c{{display:inline-block;margin-left:8px;background:rgba(255,255,255,.22);
+    border-radius:999px;padding:1px 9px;font-size:.72rem;font-weight:700}}
   .plz{{font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);white-space:nowrap}}
   .ort-name{{font-weight:600}}
   .objekt{{color:var(--muted)}}
@@ -478,6 +539,10 @@ def write_html_report(sections, out_file):
     .preise .pl{{display:inline-block;min-width:104px;color:var(--muted);
       font-weight:600;font-size:.66rem;text-transform:uppercase;letter-spacing:.05em}}
     .preise .preis-schaetz,.preise .preis-gebot{{display:block;margin:1px 0}}
+    /* Bezirks-Überschrift als Balken, nicht als Karte */
+    tbody tr.grouprow{{border:none;border-radius:8px;margin:16px 10px 4px;background:transparent}}
+    tbody tr.grouprow td{{border-radius:8px;padding:9px 14px}}
+    tbody tr.grouprow td::before{{display:none}}
   }}
 </style>
 </head>
@@ -521,11 +586,21 @@ def write_html_report(sections, out_file):
       var onlyRel = sec.getAttribute('data-onlyrel') === '1';
       var shown = 0;
       sec.querySelectorAll('tbody tr').forEach(function(tr) {{
+        if (tr.classList.contains('grouprow')) return; // Überschriften separat
         var okRel = !onlyRel || tr.getAttribute('data-relevant') === '1';
         var okTerm = !term || tr.getAttribute('data-search').indexOf(term) !== -1;
         var vis = okRel && okTerm;
         tr.style.display = vis ? '' : 'none';
         if (vis) shown++;
+      }});
+      // Bezirks-Überschrift nur zeigen, wenn im Block sichtbare Zeilen sind
+      sec.querySelectorAll('tr.grouprow').forEach(function(gr) {{
+        var any = false, n = gr.nextElementSibling;
+        while (n && !n.classList.contains('grouprow')) {{
+          if (n.style.display !== 'none') {{ any = true; break; }}
+          n = n.nextElementSibling;
+        }}
+        gr.style.display = any ? '' : 'none';
       }});
       var cnt = sec.querySelector('.shown-count');
       if (cnt) cnt.textContent = shown;
@@ -609,8 +684,8 @@ def main():
             "empty": "Aktuell keine Treffer im gewählten Gebiet.",
         },
         {
-            "id": "wien", "title": "Wien", "subtitle": "Alle Bezirke",
-            "results": res_wien, "toggle": False,
+            "id": "wien", "title": "Wien", "subtitle": "Nach Bezirk gruppiert",
+            "results": res_wien, "toggle": False, "group": "wien",
             "empty": "Aktuell keine offenen Versteigerungen in Wien.",
         },
     ]
