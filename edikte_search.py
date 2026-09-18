@@ -23,6 +23,7 @@ Installation:
 import re
 import os
 import sys
+import time
 import argparse
 import html as html_lib
 import webbrowser
@@ -206,6 +207,67 @@ def is_relevant(text):
 
 
 # ---------------------------------------------------------------------------
+# Detailseiten: Schätzwert und geringstes Gebot (Ausrufpreis) auslesen
+# ---------------------------------------------------------------------------
+def format_euro(raw):
+    """'21.000,00 EUR' / 'EUR 900,00' -> '€ 21.000' (bzw. '€ 21.000,50' bei Cent).
+    Nur Beträge mit Währungsangabe (EUR/€) werden akzeptiert."""
+    if not raw or not re.search(r"EUR|€", raw, re.I):
+        return ""
+    m = re.search(r"(\d[\d.]*)(?:,(\d{1,2}))?", raw)
+    if not m:
+        return ""
+    try:
+        ganz = int(m.group(1).replace(".", ""))
+    except ValueError:
+        return ""
+    s = f"{ganz:,}".replace(",", ".")
+    if m.group(2) and m.group(2).ljust(2, "0") != "00":
+        s += f",{m.group(2)}"
+    return "€ " + s
+
+
+def extract_detail_values(detail_html):
+    """Liest Schätzwert und geringstes Gebot aus einer Edikt-Detailseite.
+    Struktur: Label steht auf einer Zeile ('Schätzwert:'), der Betrag folgt
+    auf der nächsten Zeile ('21.000,00 EUR'). Rückgabe: (schätzwert, gebot)."""
+    soup = BeautifulSoup(detail_html, "lxml")
+    lines = [ln.strip() for ln in soup.get_text("\n", strip=True).split("\n")
+             if ln.strip()]
+
+    def value_after(label_re):
+        for i, ln in enumerate(lines):
+            m = re.match(label_re, ln, re.I)
+            if m:
+                after = ln[m.end():].strip(" :\t")
+                if re.search(r"\d", after):
+                    return after
+                if i + 1 < len(lines):
+                    return lines[i + 1]
+        return ""
+
+    schaetz = value_after(r"^schätzwert\s*:?")
+    gebot = value_after(r"^geringstes\s+gebot\s*:?")
+    return format_euro(schaetz), format_euro(gebot)
+
+
+def enrich_with_prices(results, delay=0.2):
+    """Holt für jeden Treffer die Detailseite und ergänzt Schätzwert/Gebot.
+    Fehler pro Treffer werden ignoriert (Feld bleibt leer)."""
+    total = len(results)
+    for i, r in enumerate(results, 1):
+        try:
+            resp = session.get(r["url"], timeout=30)
+            resp.raise_for_status()
+            r["schaetzwert"], r["gebot"] = extract_detail_values(resp.text)
+        except Exception as e:
+            r["schaetzwert"], r["gebot"] = "", ""
+            print(f"  [{i}/{total}] Detail-Fehler: {e}")
+        if delay:
+            time.sleep(delay)
+
+
+# ---------------------------------------------------------------------------
 # Aufbereitung / HTML-Report
 # ---------------------------------------------------------------------------
 KATEGORIEN = sorted([
@@ -254,6 +316,10 @@ def _row_html(r, esc):
       <td class="termin" data-label="Termin">
         <span class="typ">{esc(typ)}</span>
         <span class="datum">{esc(datum)}</span>
+      </td>
+      <td class="preise" data-label="Schätzwert / Ausrufpreis">
+        <span class="preis-schaetz"><span class="pl">Schätzwert</span>{esc(r.get("schaetzwert") or "–")}</span>
+        <span class="preis-gebot"><span class="pl">Ausrufpreis</span>{esc(r.get("gebot") or "–")}</span>
       </td>
       <td class="aktion">
         <a class="btn" href="{esc(r["url"])}" target="_blank" rel="noopener">Edikt&nbsp;&rsaquo;</a>
@@ -322,6 +388,11 @@ def write_html_report(results, out_file, bundesland="Steiermark"):
     font-weight:600;background:var(--accent-soft);color:var(--accent);border:1px solid #cfe6da}}
   .termin .typ{{display:block;font-weight:600}}
   .termin .datum{{color:var(--muted);font-variant-numeric:tabular-nums}}
+  .preise{{white-space:nowrap;font-variant-numeric:tabular-nums}}
+  .preise span{{display:block}}
+  .preise .preis-schaetz{{font-weight:700}}
+  .preise .preis-gebot{{color:var(--accent);font-weight:600}}
+  .preise .pl{{display:none}}
   .btn{{display:inline-block;text-decoration:none;white-space:nowrap;background:var(--accent);
     color:#fff;padding:8px 14px;border-radius:10px;font-weight:700;font-size:.85rem}}
   .btn:hover{{background:#255a40}}
@@ -351,6 +422,11 @@ def write_html_report(results, out_file, bundesland="Steiermark"):
     tbody td.aktion::before{{display:none}}
     tbody td.aktion{{padding-top:12px}}
     tbody td.plz{{font-size:1.05rem}}
+    /* Preise am Handy: Gruppen-Label weg, dafür Einzel-Labels je Betrag */
+    tbody td.preise::before{{display:none}}
+    .preise .pl{{display:inline-block;min-width:104px;color:var(--muted);
+      font-weight:600;font-size:.66rem;text-transform:uppercase;letter-spacing:.05em}}
+    .preise .preis-schaetz,.preise .preis-gebot{{display:block;margin:1px 0}}
   }}
 </style>
 </head>
@@ -383,7 +459,7 @@ def write_html_report(results, out_file, bundesland="Steiermark"):
       <div class="table-scroll">
       <table>
         <thead>
-          <tr><th>PLZ</th><th>Ort &amp; Adresse</th><th>Objekt</th><th>Termin</th><th></th></tr>
+          <tr><th>PLZ</th><th>Ort &amp; Adresse</th><th>Objekt</th><th>Termin</th><th>Schätzwert / Ausrufpreis</th><th></th></tr>
         </thead>
         <tbody id="tbody">{rows}
         </tbody>
@@ -402,7 +478,9 @@ def write_html_report(results, out_file, bundesland="Steiermark"):
       Vollständigkeit oder Aktualität; rechtlich maßgeblich sind ausschließlich die
       amtlichen Veröffentlichungen unter edikte.justiz.gv.at. Diese Seite stellt keine
       Rechts-, Anlage- oder Immobilienberatung dar und steht in keiner Verbindung zum
-      Bundesministerium für Justiz.</p>
+      Bundesministerium für Justiz. Der angezeigte „Ausrufpreis" entspricht dem
+      gesetzlichen geringsten Gebot; Schätzwert und Ausrufpreis werden automatisiert
+      aus den Detailseiten übernommen und sind ohne Gewähr.</p>
       <p class="provider">Bereitgestellt von Markus O. Thalhamer &middot;
       <a href="https://immobilienwerte.at" target="_blank" rel="noopener">immobilienwerte.at</a></p>
     </footer>
@@ -459,6 +537,8 @@ def main():
                         help="Zieldatei für den HTML-Report")
     parser.add_argument("--no-open", action="store_true",
                         help="Report nicht automatisch im Browser öffnen (für CI)")
+    parser.add_argument("--no-prices", action="store_true",
+                        help="Detailseiten nicht abrufen (kein Schätzwert/Ausrufpreis)")
     args = parser.parse_args()
 
     print("Lade Suchformular ...")
@@ -480,6 +560,10 @@ def main():
     relevant = [r for r in results if r["relevant"]]
     print(f"{len(results)} Steiermark-Treffer, davon {len(relevant)} im Raum "
           "Graz/Weiz/Kumberg.")
+
+    if results and not args.no_prices:
+        print("Hole Schätzwert/Ausrufpreis aus den Detailseiten ...")
+        enrich_with_prices(results)
 
     write_html_report(results, args.out)
     print(f"HTML-Report gespeichert unter: {args.out}")
