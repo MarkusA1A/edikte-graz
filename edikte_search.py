@@ -327,7 +327,10 @@ def write_html_report(results, out_file, bundesland="Steiermark"):
   .btn:hover{{background:#255a40}}
   .empty{{padding:28px;text-align:center;color:var(--muted)}}
   footer{{color:var(--muted);font-size:.82rem;margin:22px 4px 0;text-align:center}}
+  footer p{{margin:6px 0}}
   footer a{{color:var(--accent)}}
+  footer .disclaimer{{max-width:760px;margin:10px auto;font-size:.75rem;line-height:1.5;opacity:.85}}
+  footer .provider{{font-weight:600;color:var(--ink)}}
   @media (max-width:600px){{
     body{{padding:20px 12px}}
     header.top{{padding:22px 18px}}
@@ -390,9 +393,17 @@ def write_html_report(results, out_file, bundesland="Steiermark"):
     </div>
 
     <footer>
-      Erstellt am {esc(stand_str)} &middot;
-      Quelle: <a href="{esc(SEARCH_URL)}" target="_blank" rel="noopener">edikte.justiz.gv.at</a>
-      &middot; Angaben ohne Gewähr
+      <p>Erstellt am {esc(stand_str)} &middot;
+      Quelle: <a href="{esc(SEARCH_URL)}" target="_blank" rel="noopener">edikte.justiz.gv.at</a></p>
+      <p class="disclaimer">Rechtlicher Hinweis: Diese Seite gibt öffentlich zugängliche
+      Einträge der Ediktsdatei des österreichischen Bundesministeriums für Justiz
+      automatisiert und unverbindlich wieder. Alle Angaben ohne Gewähr auf Richtigkeit,
+      Vollständigkeit oder Aktualität; rechtlich maßgeblich sind ausschließlich die
+      amtlichen Veröffentlichungen unter edikte.justiz.gv.at. Diese Seite stellt keine
+      Rechts-, Anlage- oder Immobilienberatung dar und steht in keiner Verbindung zum
+      Bundesministerium für Justiz.</p>
+      <p class="provider">Bereitgestellt von Markus O. Thalhamer &middot;
+      <a href="https://immobilienwerte.at" target="_blank" rel="noopener">immobilienwerte.at</a></p>
     </footer>
   </div>
 
