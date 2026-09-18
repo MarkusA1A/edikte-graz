@@ -241,26 +241,32 @@ def _value_after(lines, label_re):
     return ""
 
 
-def _extract_besichtigung(lines):
-    """Besichtigungstermin auslesen (nicht immer vorhanden).
-    1) strukturiertes Label 'Besichtigung(stermin):' -> Wert (inline/nächste Zeile)
-    2) Fallback: Satz mit 'Besichtigung' und einem Datum."""
-    for i, ln in enumerate(lines):
-        m = re.match(r"^besichtigung(?:stermin)?\s*:?\s*(.*)$", ln, re.I)
-        if m:
-            val = m.group(1).strip()
-            if not val and i + 1 < len(lines):
-                val = lines[i + 1].strip()
-            if val and not val.lower().startswith("besichtigung"):
-                return re.sub(r"\s+", " ", val)[:140]
-    for ln in lines:
-        if "besichtig" in ln.lower():
-            mm = re.search(r"(\d{2}\.\d{2}\.\d{4})(?:[^\d]{0,20}?(\d{1,2}[:.]\d{2}))?", ln)
-            if mm:
-                out = mm.group(1)
-                if mm.group(2):
-                    out += ", " + mm.group(2).replace(".", ":") + " Uhr"
-                return out
+def _besicht_date(segment):
+    """Aus einem Textausschnitt Datum (+ Uhrzeit) ziehen: '25.09.2026, 08:00 Uhr'."""
+    dm = re.search(r"(\d{2}\.\d{2}\.\d{4})(?:[^\d]{0,12}?(\d{1,2})[:.](\d{2}))?", segment)
+    if not dm:
+        return ""
+    out = dm.group(1)
+    if dm.group(2):
+        out += f", {int(dm.group(2)):02d}:{dm.group(3)} Uhr"
+    return out
+
+
+def _extract_besichtigung(text):
+    """Besichtigungstermin auslesen (nicht immer vorhanden). Er steht meist am
+    Ende des Edikts als '"Ort und Zeit der Besichtigung" hinzugefügt: <Datum>,
+    <Uhrzeit>'. Rückgabe: 'TT.MM.JJJJ, HH:MM Uhr' oder ''."""
+    # 1) Gezielt das amtliche Muster 'Ort und Zeit der Besichtigung'
+    m = re.search(r"Ort und Zeit der Besichtigung", text, re.I)
+    if m:
+        val = _besicht_date(text[m.end(): m.end() + 80])
+        if val:
+            return val
+    # 2) Allgemeiner Fallback: 'Besichtigung' gefolgt von einem Datum in der Nähe
+    for m in re.finditer(r"[Bb]esichtigung", text):
+        val = _besicht_date(text[m.end(): m.end() + 60])
+        if val:
+            return val
     return ""
 
 
@@ -269,11 +275,11 @@ def extract_detail_values(detail_html):
     Besichtigungstermin aus einer Edikt-Detailseite.
     Rückgabe: (schätzwert, gebot, besichtigung)."""
     soup = BeautifulSoup(detail_html, "lxml")
-    lines = [ln.strip() for ln in soup.get_text("\n", strip=True).split("\n")
-             if ln.strip()]
+    text = soup.get_text("\n", strip=True)
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
     schaetz = format_euro(_value_after(lines, r"^schätzwert\s*:?"))
     gebot = format_euro(_value_after(lines, r"^geringstes\s+gebot\s*:?"))
-    besichtigung = _extract_besichtigung(lines)
+    besichtigung = _extract_besichtigung(text)
     return schaetz, gebot, besichtigung
 
 
@@ -363,8 +369,8 @@ def _row_html(r, esc, block=None):
       <td class="termin" data-label="Termin">
         <span class="typ">{esc(typ)}</span>
         <span class="datum">{esc(datum)}</span>
+        {f'<span class="besicht">Besichtigung: {esc(r["besichtigung"])}</span>' if r.get("besichtigung") else ""}
       </td>
-      <td class="besicht" data-label="Besichtigung">{esc(r.get("besichtigung") or "–")}</td>
       <td class="preise" data-label="Schätzwert / Ausrufpreis">
         <span class="preis-schaetz"><span class="pl">Schätzwert</span>{esc(r.get("schaetzwert") or "–")}</span>
         <span class="preis-gebot"><span class="pl">Ausrufpreis</span>{esc(r.get("gebot") or "–")}</span>
@@ -376,8 +382,7 @@ def _row_html(r, esc, block=None):
 
 
 _THEAD = ("<tr><th>PLZ</th><th>Ort &amp; Adresse</th><th>Objekt</th>"
-          "<th>Termin</th><th>Besichtigung</th>"
-          "<th>Schätzwert / Ausrufpreis</th><th></th></tr>")
+          "<th>Termin</th><th>Schätzwert / Ausrufpreis</th><th></th></tr>")
 
 
 def _wien_rows(results, esc):
@@ -404,7 +409,7 @@ def _wien_rows(results, esc):
             label = f"{num}. Bezirk – {name}" if num <= 23 else name
             parts.append(
                 f'<tr class="grouprow" data-block="{block}">'
-                f'<td colspan="7">{esc(label)}'
+                f'<td colspan="6">{esc(label)}'
                 f'<span class="gr-c">{counts[num]}</span></td></tr>'
             )
         parts.append(_row_html(r, esc, block=block))
@@ -529,7 +534,7 @@ def write_html_report(sections, out_file):
     font-weight:600;background:var(--accent-soft);color:var(--accent);border:1px solid #cfe6da}}
   .termin .typ{{display:block;font-weight:600}}
   .termin .datum{{color:var(--muted);font-variant-numeric:tabular-nums}}
-  .besicht{{color:var(--muted);font-size:.88rem;max-width:190px}}
+  .termin .besicht{{display:block;margin-top:4px;font-size:.8rem;color:#b06a00;font-weight:600}}
   .preise{{white-space:nowrap;font-variant-numeric:tabular-nums}}
   .preise span{{display:block}}
   .preise .preis-schaetz{{font-weight:700}}
