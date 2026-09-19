@@ -449,7 +449,7 @@ def _render_section(sec, esc):
     subtitle = f'<p class="sec-sub">{esc(sec["subtitle"])}</p>' if sec.get("subtitle") else ""
     empty_txt = esc(sec.get("empty", "Aktuell keine Einträge."))
     return f"""
-    <section class="section" data-onlyrel="{onlyrel}">
+    <section class="section" id="sec-{esc(sec['id'])}" data-onlyrel="{onlyrel}">
       <div class="sec-head">
         <div><h2>{esc(sec["title"])}</h2>{subtitle}</div>
         <div class="sec-stats">
@@ -477,6 +477,10 @@ def write_html_report(sections, out_file):
     stand_str = stand.strftime("%d.%m.%Y, %H:%M Uhr")
 
     sections_html = "".join(_render_section(s, esc) for s in sections)
+    jump_html = "".join(
+        f'<a class="jump" href="#sec-{esc(s["id"])}">{esc(s["title"])} &darr;</a>'
+        for s in sections
+    )
 
     doc = f"""<!DOCTYPE html>
 <html lang="de">
@@ -491,6 +495,7 @@ def write_html_report(sections, out_file):
     --shadow:0 1px 3px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.06);
   }}
   *{{box-sizing:border-box}}
+  html{{scroll-behavior:smooth}}
   body{{margin:0;background:var(--bg);color:var(--ink);line-height:1.45;padding:32px 16px;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}
   .wrap{{max-width:1080px;margin:0 auto}}
@@ -510,7 +515,11 @@ def write_html_report(sections, out_file):
     margin:22px 0 0;padding:10px 0;background:var(--bg)}}
   .controls input[type=search]{{flex:1;min-width:0;padding:12px 16px;border:1px solid var(--line);
     border-radius:12px;font-size:.95rem;background:#fff;color:var(--ink)}}
-  .section{{margin-top:30px}}
+  .jumps{{display:flex;gap:8px;flex-shrink:0}}
+  .jumps .jump{{display:inline-block;text-decoration:none;background:var(--accent);color:#fff;
+    padding:11px 15px;border-radius:12px;font-weight:700;font-size:.85rem;white-space:nowrap}}
+  .jumps .jump:hover{{background:#255a40}}
+  .section{{margin-top:30px;scroll-margin-top:76px}}
   .sec-head{{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;
     flex-wrap:wrap;margin:0 2px 10px}}
   .sec-head h2{{margin:0;font-size:1.25rem;letter-spacing:-.01em}}
@@ -567,7 +576,10 @@ def write_html_report(sections, out_file):
     body{{padding:20px 12px}}
     header.top{{padding:22px 18px}}
     header.top h1{{font-size:1.3rem}}
-    .controls{{gap:10px}}
+    .controls{{gap:10px;flex-wrap:wrap}}
+    .controls input[type=search]{{flex:1 1 100%}}
+    .jumps{{width:100%}}
+    .jumps .jump{{flex:1;text-align:center}}
     .toggle{{width:100%}}
     .toggle button{{flex:1}}
     /* Kopfzeile für Screenreader verfügbar lassen, aber visuell ausblenden */
@@ -605,6 +617,7 @@ def write_html_report(sections, out_file):
 
     <div class="controls">
       <input type="search" id="q" placeholder="Suchen (Ort, Straße, Objekt) … – filtert beide Sektionen" autocomplete="off">
+      <nav class="jumps">{jump_html}</nav>
     </div>
 
     {sections_html}
