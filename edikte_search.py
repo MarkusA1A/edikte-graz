@@ -498,6 +498,9 @@ def write_html_report(sections, out_file):
     border-radius:16px;padding:28px 28px 24px;box-shadow:var(--shadow)}}
   header.top h1{{margin:0 0 6px;font-size:1.55rem;letter-spacing:-.01em}}
   header.top p{{margin:0;opacity:.9;font-size:.95rem}}
+  header.top .stand-line{{margin-top:10px;display:inline-block;background:rgba(255,255,255,.16);
+    border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:6px 14px;
+    font-size:.85rem;font-weight:600;opacity:1}}
   .stats{{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}}
   .stat{{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);
     border-radius:12px;padding:10px 16px}}
@@ -596,7 +599,8 @@ def write_html_report(sections, out_file):
   <div class="wrap">
     <header class="top">
       <h1>Gerichtliche Versteigerungen</h1>
-      <p>Steiermark (Raum Graz/Weiz/Kumberg) &amp; Wien &middot; automatisch aktualisiert</p>
+      <p>Steiermark (Raum Graz/Weiz/Kumberg) &amp; Wien</p>
+      <p class="stand-line">Datenstand: {esc(stand_str)} &middot; automatische Aktualisierung tgl. gegen 06:00 Uhr</p>
     </header>
 
     <div class="controls">

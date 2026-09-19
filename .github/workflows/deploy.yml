@@ -3,8 +3,9 @@ name: Ediktsdatei-Report bauen & veröffentlichen
 on:
   schedule:
     # Nicht zur vollen Stunde (:00) planen - solche Läufe werden von GitHub
-    # bei hoher Last oft verworfen. 04:17 UTC = 06:17 Uhr MESZ (Sommer) / 05:17 MEZ (Winter).
-    - cron: "17 4 * * *"
+    # bei hoher Last oft verworfen. Zwei Zeitpunkte als Absicherung:
+    - cron: "17 4 * * *"      # 04:17 UTC = 06:17 Uhr MESZ (Haupt-Lauf)
+    - cron: "17 6 * * *"      # 06:17 UTC = 08:17 Uhr MESZ (Reserve-Lauf)
   workflow_dispatch:            # manuell auslösbar
   push:
     branches: [ main ]         # bei jedem Push auf main neu bauen
