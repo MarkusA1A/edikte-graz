@@ -695,6 +695,33 @@ def write_html_report(sections, out_file):
 
 
 # ---------------------------------------------------------------------------
+def write_json_export(sections, out_file):
+    """Schreibt dieselben Daten zusätzlich als edikte.json neben den HTML-Report,
+    damit andere Seiten (z. B. immobilienwerte.at/edikte) sie serverseitig
+    einbinden können."""
+    import json
+    fields = ("edikt", "adresse", "objekt", "url", "relevant",
+              "schaetzwert", "gebot", "besichtigung")
+    stand = datetime.now(timezone.utc).astimezone(_TZ)
+    data = {
+        "stand": stand.isoformat(timespec="minutes"),
+        "quelle": "https://edikte.justiz.gv.at",
+        "sections": [
+            {
+                "id": sec["id"],
+                "title": sec["title"],
+                "subtitle": sec.get("subtitle", ""),
+                "results": [{k: r.get(k, "") for k in fields} for r in sec["results"]],
+            }
+            for sec in sections
+        ],
+    }
+    json_file = os.path.join(os.path.dirname(os.path.abspath(out_file)), "edikte.json")
+    with open(json_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+    return json_file
+
+
 def main():
     parser = argparse.ArgumentParser(description="Ediktsdatei-Versteigerungssuche Steiermark")
     parser.add_argument("--debug", action="store_true",
@@ -755,6 +782,8 @@ def main():
 
     write_html_report(sections, args.out)
     print(f"HTML-Report gespeichert unter: {args.out}")
+    json_out = write_json_export(sections, args.out)
+    print(f"JSON-Export gespeichert unter: {json_out}")
 
     if (rel_stmk or res_wien) and not args.no_open:
         try:
